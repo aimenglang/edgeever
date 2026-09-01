@@ -27,7 +27,6 @@ import {
 import { MemoListPane, MemoSelectionActionBar } from "./MemoListPane";
 import { QuickMemoSwitcher } from "./QuickMemoSwitcher";
 import { AppConfirmDialog, MemoDeleteConfirmDialog, NotebookNameDialog } from "./dialogs/ConfirmDialogs";
-import { PluginPanelDialog } from "./plugins/PluginPanelDialog";
 import { api } from "@/lib/api";
 import {
   clearMobileEditorReturnPreview,
@@ -82,7 +81,6 @@ import {
   putLocalNotebook,
 } from "@/lib/local-mirror";
 import { createRepository } from "@/lib/repository";
-import { notifyRepositoryMutation } from "@/lib/repository-events";
 import {
   refreshWorkspaceData,
   shouldNavigateHomeWhenOpeningMemo,
@@ -95,7 +93,7 @@ import { useWorkspaceRoute } from "@/hooks/useWorkspaceRoute";
 import { useWorkspacePreferences } from "@/hooks/useWorkspacePreferences";
 import { useWorkspaceSelection } from "@/hooks/useWorkspaceSelection";
 import { useWorkspaceQueuedSync } from "@/hooks/useWorkspaceQueuedSync";
-import { EdgeEverPluginHost, type RegisteredPluginPanel } from "@/lib/plugins/plugin-host";
+import { EdgeEverPluginHost } from "@/lib/plugins/plugin-host";
 import { clearRendererRecoveryRequired, isRendererRecoveryRequired } from "@/lib/renderer-recovery";
 import { EditorPaneErrorBoundary, EditorRecoveryPane } from "./EditorPaneErrorBoundary";
 
@@ -734,38 +732,14 @@ export const WorkspaceApp = ({
         queryClient.invalidateQueries({ queryKey: ["memo"] }),
         queryClient.invalidateQueries({ queryKey: ["notebooks"] }),
         queryClient.invalidateQueries({ queryKey: ["tags"] }),
-        queryClient.invalidateQueries({ queryKey: ["templates"] }),
       ]);
     },
   }), [localDataScope, queryClient, repository, t]);
-  const [requestedPluginPanel, setRequestedPluginPanel] = useState<RegisteredPluginPanel | null>(null);
-  const pluginNavigationRequestIdRef = useRef(0);
-  const [pluginNavigationRequest, setPluginNavigationRequest] = useState<{ id: number; noteId: string; search: string } | null>(null);
 
   useEffect(() => {
     void pluginHost.activateEnabled();
     return () => {
       void pluginHost.dispose();
-    };
-  }, [pluginHost]);
-
-  useEffect(() => pluginHost.setPanelAdapter({
-    openPanel(pluginId, panelId) {
-      const panel = pluginHost.getSnapshot().panels.find((candidate) =>
-        candidate.pluginId === pluginId && candidate.id === panelId);
-      if (!panel) throw new Error("Plugin panel is not registered.");
-      setRequestedPluginPanel(panel);
-    },
-  }), [pluginHost]);
-
-  useEffect(() => {
-    const unsubscribe = pluginHost.subscribe(() => {
-      setRequestedPluginPanel((current) => current && pluginHost.getSnapshot().panels.some(
-        (panel) => panel.pluginId === current.pluginId && panel.id === current.id,
-      ) ? current : null);
-    });
-    return () => {
-      unsubscribe();
     };
   }, [pluginHost]);
 
@@ -1520,7 +1494,6 @@ export const WorkspaceApp = ({
         desktopRuntime: Boolean(window.edgeeverDesktop?.isAvailable),
       });
       const data = requiresRemoteMemo ? await api.createMemo(input) : await repository.createMemo(input);
-      if (requiresRemoteMemo) notifyRepositoryMutation(localDataScope, { type: "note.created", note: data.memo });
       await putLocalMemo(localDataScope, data.memo);
       return data;
     },
@@ -1587,7 +1560,6 @@ export const WorkspaceApp = ({
       const data = requiresRemoteMemo
         ? await api.useTemplate(input.templateId, input.notebookId)
         : await repository.useTemplate(input.templateId, input.notebookId);
-      if (requiresRemoteMemo) notifyRepositoryMutation(localDataScope, { type: "note.created", note: data.memo });
       await putLocalMemo(localDataScope, data.memo);
       return data;
     },
@@ -2320,30 +2292,6 @@ export const WorkspaceApp = ({
     setSelectedMemoId(memo.id);
     setActivePane("editor");
   }, [clearMemoSelection, clearPendingCreatedMemo, navigateWorkspaceHome, setSelectedMemoId, setSelectedNotebookId]);
-
-  const handleOpenPluginNote = useCallback((memoId: string, notebookId: string, options?: { search?: string }) => {
-    navigateWorkspaceHome();
-    setMemoView("notebook");
-    setSelectedTag(null);
-    setSelectedNotebookId(notebookId);
-    setSearch("");
-    setMemoFilterMode("all");
-    setRightView("editor");
-    setMobileBottomNavActive("home");
-    clearMemoSelection();
-    clearPendingCreatedMemo();
-    setCreatedMemoEditId(null);
-    setSelectedMemoId(memoId);
-    setActivePane("editor");
-    if (options?.search) {
-      pluginNavigationRequestIdRef.current += 1;
-      setPluginNavigationRequest({ id: pluginNavigationRequestIdRef.current, noteId: memoId, search: options.search });
-    } else {
-      setPluginNavigationRequest(null);
-    }
-  }, [clearMemoSelection, clearPendingCreatedMemo, navigateWorkspaceHome, setSelectedMemoId, setSelectedNotebookId]);
-
-  useEffect(() => pluginHost.setNavigationAdapter({ openNote: handleOpenPluginNote }), [handleOpenPluginNote, pluginHost]);
 
   const handleCancelMobileSearch = () => {
     setSearch("");
@@ -3203,7 +3151,6 @@ export const WorkspaceApp = ({
                       memo={selectedMemo}
                       repository={repository}
                       pluginHost={pluginHost}
-                      pluginNavigationRequest={pluginNavigationRequest}
                     onOpenAiPrompts={handleOpenAiPrompts}
                     desktopFocusMode={desktopFocusModeActive}
                     onToggleDesktopFocusMode={toggleDesktopFocusMode}
@@ -3385,7 +3332,6 @@ export const WorkspaceApp = ({
           onConfirm={() => resetDemoMutation.mutate()}
         />
       )}
-      <PluginPanelDialog host={pluginHost} panel={requestedPluginPanel} onClose={() => setRequestedPluginPanel(null)} />
       {visibleActivePane !== "editor" && !memoSelectionModeActive && (
         <MobileBottomNav
           activeItem={mobileBottomNavActive}

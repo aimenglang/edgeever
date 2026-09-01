@@ -1,8 +1,6 @@
 const DATABASE_NAME = "edgeever-plugin-packages-v1";
-const DATABASE_VERSION = 2;
-const LEGACY_PACKAGE_STORE = "packages";
-const PACKAGE_STORE = "packageVersions";
-const PLUGIN_ID_INDEX = "pluginId";
+const DATABASE_VERSION = 1;
+const PACKAGE_STORE = "packages";
 
 export interface CachedPluginPackage {
   pluginId: string;
@@ -20,7 +18,7 @@ export interface CachedPluginPackage {
 export interface PluginPackageStorage {
   get(pluginId: string, version: string): Promise<CachedPluginPackage | null>;
   put(value: CachedPluginPackage): Promise<void>;
-  remove(pluginId: string, version?: string): Promise<void>;
+  remove(pluginId: string): Promise<void>;
 }
 
 const requestResult = <T>(request: IDBRequest<T>) => new Promise<T>((resolve, reject) => {
@@ -38,8 +36,7 @@ const openDatabase = () => new Promise<IDBDatabase>((resolve, reject) => {
   const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
   request.addEventListener("upgradeneeded", () => {
     if (!request.result.objectStoreNames.contains(PACKAGE_STORE)) {
-      const store = request.result.createObjectStore(PACKAGE_STORE, { keyPath: ["pluginId", "version"] });
-      store.createIndex(PLUGIN_ID_INDEX, "pluginId");
+      request.result.createObjectStore(PACKAGE_STORE, { keyPath: "pluginId" });
     }
   });
   request.addEventListener("success", () => resolve(request.result), { once: true });
@@ -57,16 +54,9 @@ export class WebPluginPackageStore implements PluginPackageStorage {
   async get(pluginId: string, version: string) {
     const database = await this.database();
     const transaction = database.transaction(PACKAGE_STORE, "readonly");
-    const value = await requestResult(transaction.objectStore(PACKAGE_STORE).get([pluginId, version])) as CachedPluginPackage | undefined;
+    const value = await requestResult(transaction.objectStore(PACKAGE_STORE).get(pluginId)) as CachedPluginPackage | undefined;
     await transactionDone(transaction);
-    if (value) return value;
-    if (!database.objectStoreNames.contains(LEGACY_PACKAGE_STORE)) return null;
-    const legacyTransaction = database.transaction(LEGACY_PACKAGE_STORE, "readonly");
-    const legacy = await requestResult(legacyTransaction.objectStore(LEGACY_PACKAGE_STORE).get(pluginId)) as CachedPluginPackage | undefined;
-    await transactionDone(legacyTransaction);
-    if (legacy?.version !== version) return null;
-    await this.put(legacy);
-    return legacy;
+    return value?.version === version ? value : null;
   }
 
   async put(value: CachedPluginPackage) {
@@ -76,31 +66,10 @@ export class WebPluginPackageStore implements PluginPackageStorage {
     await transactionDone(transaction);
   }
 
-  async remove(pluginId: string, version?: string) {
+  async remove(pluginId: string) {
     const database = await this.database();
     const transaction = database.transaction(PACKAGE_STORE, "readwrite");
-    const store = transaction.objectStore(PACKAGE_STORE);
-    if (version) {
-      store.delete([pluginId, version]);
-    } else {
-      const request = store.index(PLUGIN_ID_INDEX).openCursor(IDBKeyRange.only(pluginId));
-      request.addEventListener("success", () => {
-        const cursor = request.result;
-        if (!cursor) return;
-        cursor.delete();
-        cursor.continue();
-      });
-    }
+    transaction.objectStore(PACKAGE_STORE).delete(pluginId);
     await transactionDone(transaction);
-    if (!database.objectStoreNames.contains(LEGACY_PACKAGE_STORE)) return;
-    const legacyTransaction = database.transaction(LEGACY_PACKAGE_STORE, "readwrite");
-    const legacyStore = legacyTransaction.objectStore(LEGACY_PACKAGE_STORE);
-    if (!version) {
-      legacyStore.delete(pluginId);
-    } else {
-      const legacy = await requestResult(legacyStore.get(pluginId)) as CachedPluginPackage | undefined;
-      if (legacy?.version === version) legacyStore.delete(pluginId);
-    }
-    await transactionDone(legacyTransaction);
   }
 }
