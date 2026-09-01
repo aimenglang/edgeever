@@ -25,7 +25,7 @@ export const GitHubRepositoryLink = ({
   iconClassName?: string;
 }) => {
   const { t } = useTranslation();
- // const resolvedTitle = t("common.githubRepository");
+  const resolvedTitle = t("common.githubRepository");
 
   return (
     <TooltipProvider delayDuration={0} skipDelayDuration={0}>

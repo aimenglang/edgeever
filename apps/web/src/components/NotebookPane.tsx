@@ -693,7 +693,7 @@ export const NotebookPane = ({
                 <span className="flex h-4 w-4 shrink-0 items-center justify-center text-emerald-600 dark:text-emerald-400">
                   <Download className="h-4 w-4" />
                 </span>
-
+                <span className="min-w-0 flex-1 truncate">{t("pwa.sidebarDownloads") || "下载客户端"}</span>
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent
