@@ -34,4 +34,3 @@ preview_bucket_name = "edgeever-resources-preview"
 
 [observability]
 enabled = true
-
